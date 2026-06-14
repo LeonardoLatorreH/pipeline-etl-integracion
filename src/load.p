@@ -45,3 +45,4 @@ def load(datasets: dict, connection_string: str) -> None:
 
     logger.info("Carga completada.")
 
+
