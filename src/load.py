@@ -4,13 +4,11 @@ from sqlalchemy import create_engine, text
 logger = logging.getLogger(__name__)
 
 def load(datasets: dict, connection_string: str) -> None:
-    """Carga los DataFrames transformados a MySQL."""
 
     logger.info("Iniciando carga de datos a MySQL...")
 
     engine = create_engine(connection_string)
 
-    # orden de carga respeta las foreign keys
     load_order = [
         "customers",
         "sellers",
@@ -22,30 +20,50 @@ def load(datasets: dict, connection_string: str) -> None:
         "order_reviews",
     ]
 
+    # Validación básica de datasets
+    missing_tables = [t for t in load_order if t not in datasets]
+    if missing_tables:
+        logger.warning(f"Tablas faltantes en datasets: {missing_tables}")
+
     with engine.begin() as conn:
+
+        # Desactivar foreign keys temporalmente
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 0;"))
 
-    for table in load_order:
-        df = datasets[table]
-        try:
-            df.to_sql(
-                name=table,
-                con=engine,
-<<<<<<< HEAD
-                if_exists="append",
-=======
-                if_exists="append"
->>>>>>> 7312961f8cc2e6d19a6022c4e3e5a6d6df507f1b
-                index=False,
-                chunksize=1000,
-            )
-            logger.info(f"  {table}: {len(df):,} registros cargados")
-        except Exception as e:
-            logger.error(f"  Error cargando {table}: {e}")
-            raise
+        for table in load_order:
 
-    with engine.begin() as conn:
+            if table not in datasets:
+                logger.warning(f"Saltando {table}: no existe en datasets")
+                continue
+
+            df = datasets[table]
+
+            if df is None or df.empty:
+                logger.warning(f"Saltando {table}: DataFrame vacío")
+                continue
+
+            try:
+                logger.info(f"Iniciando carga de {table}")
+
+                # Limpieza básica de duplicados
+                df = df.drop_duplicates()
+
+                df.to_sql(
+                    name=table,
+                    con=conn,
+                    if_exists="append",
+                    index=False,
+                    chunksize=1000,
+                    method="multi"
+                )
+
+                logger.info(f"{table}: {len(df):,} registros cargados")
+
+            except Exception as e:
+                logger.error(f"Error cargando {table}: {e}")
+                raise
+
+        # Reactivar foreign keys
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1;"))
 
-    logger.info("Carga completada.")
-
+    logger.info("Carga completada exitosamente.")
